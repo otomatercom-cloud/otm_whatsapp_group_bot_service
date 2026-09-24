@@ -1,0 +1,23 @@
+; Example systemd unit for the group bot service on your Linux server.
+; Copy to /etc/systemd/system/otm-whatsapp-group-bot.service, edit the
+; paths/user below, then:
+;   sudo systemctl daemon-reload
+;   sudo systemctl enable --now otm-whatsapp-group-bot
+;   sudo journalctl -u otm-whatsapp-group-bot -f      (watch logs / QR pairing)
+
+[Unit]
+Description=Otomater WhatsApp Group Bot Service (unofficial Baileys client)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=otomater
+WorkingDirectory=/opt/otm_whatsapp_group_bot_service
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/opt/otm_whatsapp_group_bot_service/.env
+
+[Install]
+WantedBy=multi-user.target

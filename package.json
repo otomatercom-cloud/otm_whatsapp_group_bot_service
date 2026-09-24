@@ -1,0 +1,18 @@
+{
+  "name": "otm-whatsapp-group-bot-service",
+  "version": "1.0.0",
+  "description": "Unofficial WhatsApp Group send service for Otomater's otm_whatsapp_group_scheduler Odoo module. Uses Baileys (unofficial WhatsApp Web protocol library) because Meta's official Cloud API does not support sending to WhatsApp Groups. NEVER use the same number here that is connected to otm_whatsapp_coexistence's official Meta integration - use a separate, disposable number.",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.19.2",
+    "pino": "^9.3.2",
+    "qrcode": "^1.5.4",
+    "dotenv": "^16.4.5"
+  }
+}
