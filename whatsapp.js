@@ -3,21 +3,21 @@
  * Thin wrapper around Baileys (an UNOFFICIAL WhatsApp Web protocol
  * library - not Meta's Cloud API). This exists only because Meta's
  * official WhatsApp Business Platform has no group-send capability at
- * all. Using this violates WhatsApp's Terms of Service and carries a
- * real ban risk for the connected number - that's a business decision
- * made outside this code, not something this file tries to hide or
- * minimize.
+ * all, and because otm_whatsapp_lead_scheduler needs a per-Admission-
+ * Officer number that is NOT the Coexistence/Cloud API number either.
+ * Using this violates WhatsApp's Terms of Service and carries a real ban
+ * risk for the connected number - that's a business decision made outside
+ * this code, not something this file tries to hide or minimize.
  *
  * Keeps exactly one persistent socket alive, auto-reconnecting on drop
  * (except after an explicit logout, which requires a fresh QR scan).
  *
- * One process = one WhatsApp session. otm_whatsapp_lead_scheduler (Odoo)
- * needs one number per Admission Officer, which this file does NOT try to
- * multiplex internally - instead, each officer runs their own separate
- * instance of this whole service (own port, own AUTH_STATE_DIR, own .env),
- * pointed at from their own otm.whatsapp.lead.bot record in Odoo. The only
- * change made for that feature is sendDirectMessage() below, alongside the
- * pre-existing sendGroupMessage().
+ * CHANGE FROM THE ORIGINAL otm_whatsapp_group_bot_service/src/whatsapp.js:
+ * added sendDirectMessage() below, alongside the existing
+ * sendGroupMessage() - purely additive, nothing else in this file
+ * changed. Every officer runs their OWN instance of this exact file (own
+ * port, own AUTH_STATE_DIR, own .env) - this is NOT a multi-session
+ * rewrite, just one more capability on the same single-session service.
  */
 
 const path = require("path");
@@ -143,30 +143,6 @@ function createWhatsappManager({ authStateDir, logLevel }) {
     }));
   }
 
-  function _buildContent(text, media) {
-    if (media && media.base64) {
-      const buffer = Buffer.from(media.base64, "base64");
-      if (media.mediaType === "image") {
-        return { image: buffer, caption: text || undefined, mimetype: media.mimeType };
-      }
-      if (media.mediaType === "video") {
-        return { video: buffer, caption: text || undefined, mimetype: media.mimeType };
-      }
-      return {
-        document: buffer,
-        fileName: media.fileName || "attachment",
-        mimetype: media.mimeType || "application/octet-stream",
-        caption: text || undefined,
-      };
-    }
-    if (!text) {
-      const err = new Error("Either text or media is required");
-      err.code = "EMPTY_MESSAGE";
-      throw err;
-    }
-    return { text };
-  }
-
   /**
    * Sends a text and/or media message to a WhatsApp Group.
    * `groupId` must be the full JID, e.g. "120363xxxxxxxxxx@g.us".
@@ -193,29 +169,68 @@ function createWhatsappManager({ authStateDir, logLevel }) {
   }
 
   /**
-   * Sends a text and/or media message directly to an individual WhatsApp
-   * number - added for otm_whatsapp_lead_scheduler (Odoo). `phoneId` must
-   * be the full JID, e.g. "919847012345@s.whatsapp.net" (Odoo's
-   * LeadBotClient normalizes the plain phone number before calling this).
-   * `media`: same shape as sendGroupMessage's.
+   * NEW: sends a text message to ONE customer's phone number (not a
+   * group) - this is what otm_whatsapp_lead_scheduler's POST /send-direct
+   * route calls. `to` accepts a plain number as typed on the lead
+   * ("9198xxxxxxxx", "+9198xxxxxxxx", with spaces/dashes) and this
+   * function normalises it into a WhatsApp JID
+   * ("9198xxxxxxxx@s.whatsapp.net") - Odoo never needs to know the JID
+   * format, only the raw number it already has.
    */
-  async function sendDirectMessage(phoneId, text, media) {
+  async function sendDirectMessage(to, text, media) {
     if (state.connectionState !== "connected" || !state.sock) {
       const err = new Error("WhatsApp bot is not connected (state=" + state.connectionState + ")");
       err.code = "NOT_CONNECTED";
       throw err;
     }
-    if (!phoneId || !phoneId.endsWith("@s.whatsapp.net")) {
-      const err = new Error(
-        "phone_id must be a full WhatsApp JID ending in '@s.whatsapp.net', got: " + phoneId
-      );
-      err.code = "INVALID_PHONE_ID";
+    const jid = _toJid(to);
+    if (!jid) {
+      const err = new Error("Could not build a valid WhatsApp JID from: " + to);
+      err.code = "INVALID_NUMBER";
       throw err;
     }
 
     const content = _buildContent(text, media);
-    const result = await state.sock.sendMessage(phoneId, content);
+    const result = await state.sock.sendMessage(jid, content);
     return { messageId: result && result.key ? result.key.id : null };
+  }
+
+  function _buildContent(text, media) {
+    if (media && media.base64) {
+      const buffer = Buffer.from(media.base64, "base64");
+      if (media.mediaType === "image") {
+        return { image: buffer, caption: text || undefined, mimetype: media.mimeType };
+      }
+      if (media.mediaType === "video") {
+        return { video: buffer, caption: text || undefined, mimetype: media.mimeType };
+      }
+      return {
+        document: buffer,
+        fileName: media.fileName || "attachment",
+        mimetype: media.mimeType || "application/octet-stream",
+        caption: text || undefined,
+      };
+    }
+    if (!text) {
+      const err = new Error("Either text or media is required");
+      err.code = "EMPTY_MESSAGE";
+      throw err;
+    }
+    return { text };
+  }
+
+  /**
+   * Strips everything but digits and appends "@s.whatsapp.net" - the
+   * individual-chat JID suffix (as opposed to "@g.us" for groups). Returns
+   * null for anything that doesn't leave at least 8 digits, so a blank or
+   * garbage phone number on the lead fails with INVALID_NUMBER instead of
+   * silently messaging a wrong/empty JID.
+   */
+  function _toJid(raw) {
+    if (!raw) return null;
+    const digits = String(raw).replace(/[^0-9]/g, "");
+    if (digits.length < 8) return null;
+    return digits + "@s.whatsapp.net";
   }
 
   return { start, getStatus, getQr, listGroups, sendGroupMessage, sendDirectMessage };

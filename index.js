@@ -72,16 +72,17 @@ app.post("/send", async (req, res) => {
   }
 });
 
-// Added for otm_whatsapp_lead_scheduler (Odoo): sends directly to one
-// WhatsApp number instead of a group. Same auth, same response shape as
-// /send, so Odoo's LeadBotClient/GroupBotClient can be read side by side.
+// NEW: sends to one customer's phone number, not a group - used by
+// otm_whatsapp_lead_scheduler's LeadBotClient.send_direct_message(). Wire
+// format deliberately mirrors POST /send above (same success/error/code
+// shape) so both clients on the Odoo side share one _parse() helper.
 app.post("/send-direct", async (req, res) => {
-  const { phone_id: phoneId, message, media } = req.body || {};
+  const { to, message, media } = req.body || {};
   try {
-    const result = await wa.sendDirectMessage(phoneId, message, media);
+    const result = await wa.sendDirectMessage(to, message, media);
     res.json({ success: true, message_id: result.messageId });
   } catch (err) {
-    logger.warn({ err: err.message, code: err.code, phoneId }, "Direct send failed");
+    logger.warn({ err: err.message, code: err.code, to }, "Direct send failed");
     res.status(err.code === "NOT_CONNECTED" ? 503 : 400).json({
       success: false,
       error: err.message,
@@ -96,7 +97,7 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 app.listen(PORT, () => {
-  logger.info({ port: PORT }, "otm-whatsapp-group-bot-service listening");
+  logger.info({ port: PORT }, "otm-whatsapp-bot-service listening");
 });
 
 wa.start().catch((err) => {
